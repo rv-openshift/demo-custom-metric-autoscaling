@@ -1,0 +1,109 @@
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: thanos
+  namespace: keda-test
+---  
+kind: TriggerAuthentication
+apiVersion: keda.sh/v1alpha1
+metadata:
+  name: keda-trigger-auth-prometheus
+  namespace: keda-test 
+spec:
+  secretTargetRef: 
+  - parameter: bearerToken 
+    name: thanos-token-g6dmf 
+    key: token 
+  - parameter: ca
+    name: thanos-token-g6dmf
+    key: ca.crt
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: thanos-metrics-reader
+  namespace: keda-test  
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+- apiGroups:
+  - metrics.k8s.io
+  resources:
+  - pods
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch    
+---
+  #oc adm policy add-role-to-user thanos-metrics-reader -z thanos --role-namespace=keda-test
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: thanos-metrics-reader
+  namespace: keda-test
+subjects:
+  - kind: ServiceAccount
+    name: thanos
+    namespace: keda-test
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: thanos-metrics-reader
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: prometheus-scaledobject
+  namespace: keda-test  
+spec:
+  scaleTargetRef:
+    name: prometheus-example-app
+  cooldownPeriod: 300
+  idleReplicaCount: 0 #to test scale down to 0
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: https://thanos-querier.openshift-monitoring.svc.cluster.local:9092
+      namespace: keda-test
+      authModes: "bearer"
+      metricName: http_requests_total
+      threshold: '5'
+      query: sum(rate(http_requests_total{job="keda-test"}[20m])) #update to 20mins for test
+    authenticationRef:
+      name: keda-trigger-auth-prometheus
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: generate-requests-
+  namespace: keda-test
+spec:
+  template:
+    spec:
+      containers:
+      - image: quay.io/zroubalik/hey
+        name: hey
+        env:
+          - name: ROUTE
+            value: http://prometheus-example-app:8080
+        # generate moderate load of (5*10) per second for roughly 2000/(5*10) seconds
+        args:
+          - -c
+          - "5"
+          - -q
+          - "10"
+          - -n
+          - "2000"
+          - "$(ROUTE)"
+      restartPolicy: Never
+  activeDeadlineSeconds: 120
+  backoffLimit: 2     
