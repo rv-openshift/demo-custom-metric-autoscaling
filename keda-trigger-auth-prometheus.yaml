@@ -67,7 +67,7 @@ spec:
     name: prometheus-example-app
   cooldownPeriod: 300
   idleReplicaCount: 0 #to test scale down to 0
-  minReplicaCount: 1
+  minReplicaCount: 0
   maxReplicaCount: 3
   triggers:
   - type: prometheus
@@ -94,7 +94,7 @@ spec:
         name: hey
         env:
           - name: ROUTE
-            value: http://prometheus-example-app:8080
+            value: http://prometheus-example-app-keda-test.apps-crc.testing/
         # generate moderate load of (5*10) per second for roughly 2000/(5*10) seconds
         args:
           - -c
